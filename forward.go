@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const bufferSize = 8192
+const bufferSize = 4096
 
 type connection struct {
 	available  chan struct{}
@@ -30,7 +30,7 @@ type Forwarder struct {
 	closed bool
 }
 
-const DefaultTimeout = time.Minute * 1
+const DefaultTimeout = time.Minute * 5
 
 func Forward(src, dst string, timeout time.Duration) (*Forwarder, error) {
 	forwarder := new(Forwarder)
