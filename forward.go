@@ -122,6 +122,7 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 			delete(f.connections, addr.String())
 			return
 		}
+		log.Println("udp-forward: forward packets from:", addr.String())
 
 		f.connectionsMutex.Lock()
 		f.connections[addr.String()].udp = udpConn
