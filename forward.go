@@ -105,6 +105,7 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 			udp:        nil,
 			lastActive: time.Now(),
 		}
+		log.Println("forward: new packet from", addr.String())
 	}
 	f.connectionsMutex.Unlock()
 
@@ -114,15 +115,16 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 		if f.dst.IP.To4()[0] == 127 {
 			laddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:")
 			udpConn, err = net.DialUDP("udp", laddr, f.dst)
+			log.Println("forward: new local connection to localhost")
 		} else {
 			udpConn, err = net.DialUDP("udp", nil, f.dst)
+			log.Println("forward: new local connection to ", f.dst.IP.String())
 		}
 		if err != nil {
 			log.Println("udp-forward: failed to dial:", err)
 			delete(f.connections, addr.String())
 			return
 		}
-		log.Println("udp-forward: forward packets from:", addr.String())
 
 		f.connectionsMutex.Lock()
 		f.connections[addr.String()].udp = udpConn
@@ -134,6 +136,7 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 		if err != nil {
 			log.Println("udp-forward: error sending initial packet to client", err)
 		}
+		log.Println("forward: successfully sending initial packet to client")
 
 		for {
 			buf := make([]byte, bufferSize)
