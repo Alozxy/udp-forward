@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const bufferSize = 4096
+const bufferSize = 8192
 
 type connection struct {
 	available  chan struct{}
@@ -20,32 +20,20 @@ type connection struct {
 type Forwarder struct {
 	src          *net.UDPAddr
 	dst          *net.UDPAddr
-	client       *net.UDPAddr
 	listenerConn *net.UDPConn
 
 	connections      map[string]*connection
 	connectionsMutex *sync.RWMutex
-
-	connectCallback    func(addr string)
-	disconnectCallback func(addr string)
 
 	timeout time.Duration
 
 	closed bool
 }
 
-// DefaultTimeout is the default timeout period of inactivity for convenience
-// sake. It is equivelant to 5 minutes.
-const DefaultTimeout = time.Minute * 5
+const DefaultTimeout = time.Minute * 1
 
-// Forward forwards UDP packets from the src address to the dst address, with a
-// timeout to "disconnect" clients after the timeout period of inactivity. It
-// implements a reverse NAT and thus supports multiple seperate users. Forward
-// is also asynchronous.
 func Forward(src, dst string, timeout time.Duration) (*Forwarder, error) {
 	forwarder := new(Forwarder)
-	forwarder.connectCallback = func(addr string) {}
-	forwarder.disconnectCallback = func(addr string) {}
 	forwarder.connectionsMutex = new(sync.RWMutex)
 	forwarder.connections = make(map[string]*connection)
 	forwarder.timeout = timeout
@@ -105,9 +93,6 @@ func (f *Forwarder) janitor() {
 		}
 		f.connectionsMutex.Unlock()
 
-		for _, k := range keysToDelete {
-			f.disconnectCallback(k)
-		}
 	}
 }
 
@@ -127,7 +112,6 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 		var udpConn *net.UDPConn
 		var err error
 		if f.dst.IP.To4()[0] == 127 {
-			// log.Println("using local listener")
 			laddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:")
 			udpConn, err = net.DialUDP("udp", laddr, f.dst)
 		} else {
@@ -145,15 +129,12 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 		close(f.connections[addr.String()].available)
 		f.connectionsMutex.Unlock()
 
-		f.connectCallback(addr.String())
-
 		_, _, err = udpConn.WriteMsgUDP(data, nil, nil)
 		if err != nil {
 			log.Println("udp-forward: error sending initial packet to client", err)
 		}
 
 		for {
-			// log.Println("in loop to read from NAT connection to servers")
 			buf := make([]byte, bufferSize)
 			oob := make([]byte, bufferSize)
 			n, _, _, _, err := udpConn.ReadMsgUDP(buf, oob)
@@ -162,12 +143,10 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 				udpConn.Close()
 				delete(f.connections, addr.String())
 				f.connectionsMutex.Unlock()
-				f.disconnectCallback(addr.String())
 				log.Println("udp-forward: abnormal read, closing:", err)
 				return
 			}
 
-			// log.Println("sent packet to client")
 			_, _, err = f.listenerConn.WriteMsgUDP(buf[:n], nil, addr)
 			if err != nil {
 				log.Println("udp-forward: error sending packet to client:", err)
@@ -179,7 +158,6 @@ func (f *Forwarder) handle(data []byte, addr *net.UDPAddr) {
 
 	<-conn.available
 
-	// log.Println("sent packet to server", conn.udp.RemoteAddr())
 	_, _, err := conn.udp.WriteMsgUDP(data, nil, nil)
 	if err != nil {
 		log.Println("udp-forward: error sending packet to server:", err)
@@ -216,18 +194,6 @@ func (f *Forwarder) Close() {
 	}
 	f.listenerConn.Close()
 	f.connectionsMutex.Unlock()
-}
-
-// OnConnect can be called with a callback function to be called whenever a
-// new client connects.
-func (f *Forwarder) OnConnect(callback func(addr string)) {
-	f.connectCallback = callback
-}
-
-// OnDisconnect can be called with a callback function to be called whenever a
-// new client disconnects (after 5 minutes of inactivity).
-func (f *Forwarder) OnDisconnect(callback func(addr string)) {
-	f.disconnectCallback = callback
 }
 
 // Connected returns the list of connected clients in IP:port form.
